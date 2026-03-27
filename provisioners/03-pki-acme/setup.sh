@@ -77,6 +77,19 @@ if ! vault secrets list -format=json | jq -e '."pki/"' >/dev/null 2>&1; then
   exit 1
 fi
 
+# ── tune PKI mount for ACME response headers ─────────────────────────────────
+# Vault filters non-standard response headers by default.
+# Replay-Nonce is required: ACME clients use it to prevent replay attacks.
+# Link is required: ACME responses include Link headers for ToS and chain URLs.
+# Without this tuning, the nonce endpoint returns 200 with no Replay-Nonce header
+# and all ACME clients silently fail to get a nonce.
+printf -- "-- Tuning PKI mount: allowing ACME response headers --\n"
+vault secrets tune \
+  -allowed-response-headers="Replay-Nonce" \
+  -allowed-response-headers="Link" \
+  -allowed-response-headers="Location" \
+  pki
+
 # ── configure cluster path ────────────────────────────────────────────────────
 # This is the base URL Vault uses to build all ACME endpoint URLs.
 # It MUST match the external address — ACME clients redirect to these URLs.

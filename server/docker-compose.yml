@@ -17,6 +17,27 @@ services:
       - ./tls:/vault/tls:ro
       - vault-data:/vault/data
       - vault-logs:/vault/logs
+    # ── DNS ───────────────────────────────────────────────────────────────────
+    # Vault validates ACME challenges (HTTP-01 and DNS-01) from inside this
+    # container. Docker's default resolver (127.0.0.11) forwards to the host's
+    # configured DNS — which may not reach all domains.
+    #
+    # 1.1.1.1 is Cloudflare's public resolver. It works for any domain that
+    # has public DNS (including domains hosted on your own public nameservers).
+    #
+    # For domains that only exist on an internal/private DNS server, replace
+    # or add that server's IP:
+    #   - 192.168.1.1   # internal nameserver
+    #   - 1.1.1.1       # fallback to public
+    #
+    # For HTTP-01 only: extra_hosts injects /etc/hosts entries (bypasses DNS).
+    # Useful for a single test host without changing DNS configuration.
+    # Format: "hostname:ip"
+    #
+    # extra_hosts:
+    #   - "domino.example.com:192.168.1.10"
+    dns:
+      - 1.1.1.1
     healthcheck:
       test: ["CMD", "vault", "status", "-address=http://127.0.0.1:8100"]
       interval: 60s

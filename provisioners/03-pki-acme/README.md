@@ -16,9 +16,16 @@ but against your private CA.
 
 | Resource | Path | Purpose |
 |----------|------|---------|
+| Mount tuning | `sys/mounts/pki/tune` | Allows `Replay-Nonce` and `Link` response headers |
 | Cluster path | `pki/config/cluster` | Base URL for all ACME endpoints (must be public) |
 | ACME config | `pki/config/acme` | Enables ACME, sets default policy |
 | Role | `pki/roles/acme` | Controls domains ACME clients may request |
+
+> **Note:** Vault filters non-standard HTTP response headers by default. The mount tuning
+> step is not optional — without it:
+> - `Replay-Nonce` is missing → ACME clients cannot get a nonce, silently retry forever
+> - `Location` is missing → ACME clients cannot find the account URL after registration
+> - `Link` is missing → ToS and chain links are broken
 
 ## ACME directory URL
 
