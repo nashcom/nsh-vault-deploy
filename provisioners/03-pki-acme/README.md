@@ -1,122 +1,112 @@
-# 03 — PKI ACME
+# 03 — ACME Protocol
 
-Enables the ACME protocol on the PKI secrets engine so that standard ACME
-clients (certbot, acme.sh, Caddy, etc.) can obtain certificates from Vault.
+## What this does
 
-Requires: `02-pki-internal-ca` (PKI engine must be enabled first).
-Requires: Vault 1.14.0+ (Community Edition or Enterprise).
+Enables the ACME protocol on Vault's PKI engine. ACME (Automatic Certificate Management
+Environment) is the same protocol used by Let's Encrypt. Once enabled, any ACME client
+(certbot, acme.sh, Domino CertMgr, Caddy, Traefik, etc.) can request and renew certificates
+from this Vault server automatically — using the same tooling they use with Let's Encrypt,
+but against your private CA.
 
-## What this sets up
+**Requires:** `02-pki-internal-ca` completed. ACME runs on top of the PKI engine.
 
-- ACME enabled on the `pki/` secrets engine
-- Cluster path configured with the external Vault URL
-- Role `acme` — the policy used for ACME-issued certificates
-- ACME directory at `https://vault.example.com/v1/pki/acme/directory`
+**Requires:** Vault 1.14 or later.
 
-## Prerequisites
+## What gets created
 
-- `02-pki-internal-ca` completed
-- `VAULT_API_ADDR` set to the public Vault URL
-- Vault must be reachable externally on that URL (ACME clients reach it directly)
+| Resource | Path | Purpose |
+|----------|------|---------|
+| Cluster path | `pki/config/cluster` | Base URL for all ACME endpoints (must be public) |
+| ACME config | `pki/config/acme` | Enables ACME, sets default policy |
+| Role | `pki/roles/acme` | Controls domains ACME clients may request |
+
+## ACME directory URL
+
+Once configured, ACME clients point to:
+
+```
+https://your-vault/v1/pki/acme/directory
+```
+
+This is the entry point for all ACME operations (discovery, nonce, order, challenge, finalize).
+
+## Variables
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `VAULT_ADDR` | yes | Local connection address. Default: `http://127.0.0.1:8100` |
+| `VAULT_TOKEN` | yes | Root token. Auto-read from `server/init/vault-init.json` if present. |
+| `VAULT_API_ADDR` | yes | **Public URL of this Vault server.** Written into `pki/config/cluster` as the base for all ACME endpoint URLs. ACME clients follow redirects to these URLs — must be externally reachable. Example: `https://vault.example.com` |
+| `VAULT_DOMAIN` | yes | **Domain for ACME certificate requests.** Only hostnames under this domain may be requested via ACME. Example: `example.com` |
 
 ## Run
 
 ```bash
-export VAULT_ADDR=http://127.0.0.1:8100
-export VAULT_TOKEN=$(jq -r '.root_token' ../server/init/vault-init.json)
-export VAULT_API_ADDR=https://vault.example.com
+bash 03-pki-acme/setup.sh
+```
 
+Or with variables pre-set:
+
+```bash
+export VAULT_ADDR=http://127.0.0.1:8100
+export VAULT_TOKEN=$(jq -r '.root_token' server/init/vault-init.json)
+export VAULT_API_ADDR=https://vault.example.com
+export VAULT_DOMAIN=example.com
 bash 03-pki-acme/setup.sh
 ```
 
 ## Verify
 
 ```bash
-# ACME config
+# ACME is enabled
 vault read pki/config/acme
+
+# Cluster path is set to the public address
 vault read pki/config/cluster
 
-# Roles available for ACME
-vault list pki/roles
-vault read pki/roles/acme
-```
-
-## Test — ACME directory
-
-The ACME directory endpoint must return JSON:
-
-```bash
+# ACME directory is reachable
 curl -s https://vault.example.com/v1/pki/acme/directory | jq .
 ```
 
-Expected response:
-```json
-{
-  "newAccount": "https://vault.example.com/v1/pki/acme/new-account",
-  "newNonce": "https://vault.example.com/v1/pki/acme/new-nonce",
-  "newOrder": "https://vault.example.com/v1/pki/acme/new-order",
-  "revokeCert": "https://vault.example.com/v1/pki/acme/revoke-cert",
-  "keyChange": "https://vault.example.com/v1/pki/acme/key-change"
-}
-```
+The directory response lists all ACME endpoint URLs. All of them should use your public address.
 
-## Test — Issue certificate with acme.sh
+## Test — issue a certificate with acme.sh
 
 ```bash
-# Install acme.sh if needed
-# curl https://get.acme.sh | sh
-
-# Register and issue (HTTP-01 challenge — port 80 must be reachable)
-acme.sh --register-account \
-  --server https://vault.example.com/v1/pki/acme/directory \
-  -m admin@example.com
-
+# Issue a certificate (server must be reachable for HTTP-01 challenge)
 acme.sh --issue \
   --server https://vault.example.com/v1/pki/acme/directory \
-  -d test.example.com \
+  -d host.example.com \
   --standalone
 
-# The certificate is at:
-#   ~/.acme.sh/test.example.com/test.example.com.cer
-#   ~/.acme.sh/test.example.com/test.example.com.key
+# The issued certificate will be signed by your Vault internal CA.
+# Clients must trust the root CA from 02-pki-internal-ca/root-ca.crt.
 ```
 
-## Test — Issue certificate with certbot
+## Test — issue a certificate with certbot
 
 ```bash
-# HTTP-01 challenge (port 80 must be available on the ACME client host)
 certbot certonly \
   --server https://vault.example.com/v1/pki/acme/directory \
   --standalone \
-  -d test.example.com \
-  --agree-tos \
-  -m admin@example.com
-
-# DNS-01 challenge (no port 80 requirement, needs DNS API access)
-certbot certonly \
-  --server https://vault.example.com/v1/pki/acme/directory \
-  --manual \
-  --preferred-challenges dns \
-  -d test.example.com
+  -d host.example.com
 ```
 
-## How ACME challenges work
+## Domino CertMgr integration
 
-Vault acts as the ACME CA. The ACME client handles the challenge:
+In CertMgr, set the ACME directory URL to:
 
-- **HTTP-01**: Client serves a token at `http://<domain>/.well-known/acme-challenge/<token>`.
-  Vault's ACME implementation will try to reach this URL to verify ownership.
-  Requires port 80 to be accessible from Vault's perspective.
+```
+https://vault.example.com/v1/pki/acme/directory
+```
 
-- **DNS-01**: Client adds a `_acme-challenge.<domain>` TXT record to DNS.
-  Vault queries DNS to verify. No port requirements. Works behind NAT.
+CertMgr will use the ACME protocol to request and automatically renew certificates.
+The issued certificates are signed by your internal Vault CA. Ensure all Domino clients
+and browsers trust the root CA from `02-pki-internal-ca/root-ca.crt`.
 
-## ACME and the Vault CA trust
+## Challenge types
 
-ACME clients need to trust Vault's root CA for TLS verification.
-The Vault root CA is at `https://vault.example.com/v1/pki/ca/pem`.
+Vault's ACME supports **HTTP-01** and **DNS-01** challenges.
 
-If Vault's TLS cert is from a public CA (Let's Encrypt, ZeroSSL), ACME clients
-can connect to Vault without extra CA configuration.
-The *issued* certificates use the Vault internal CA — import `root-ca.crt`
-(from step 02) to trust those.
+- **HTTP-01**: The ACME client temporarily serves a token on `http://<domain>/.well-known/acme-challenge/`. Vault fetches it to verify domain ownership. The server must be reachable on port 80 from Vault.
+- **DNS-01**: The client creates a DNS TXT record. Useful when port 80 is not available.

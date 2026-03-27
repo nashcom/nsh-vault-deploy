@@ -1,87 +1,78 @@
-# 04 — AppRole for NGINX
+# 04 — Per-Server AppRole for NGINX
 
-Creates per-server AppRoles so NGINX servers can authenticate to Vault
-and read their own TLS certificates from the KV secrets engine.
+## What this does
 
-Requires: `01-kv-secrets` (AppRole auth method and KV engine must be enabled).
+Creates an AppRole identity for each NGINX (or any web server) that needs to read
+certificates from Vault. Each server gets:
 
-## What this sets up
+- Its own **policy** — read-only access to its own certificate path only
+- Its own **AppRole** — unique credentials, isolated from other servers
+- A **credentials directory** with `role_id` and `secret_id` files to copy to the server
 
-- Policy `nginx-<hostname>` — read-only access to `secret/certs/<hostname>/*`
-- AppRole `nginx-<hostname>` per server
-- Credentials saved to `credentials/<hostname>/`
+This follows the principle of least privilege: each server can only see its own
+certificates, not those of any other server.
 
-## Prerequisites
+**Requires:** `01-kv-secrets` completed (KV engine and AppRole auth must exist).
 
-- `01-kv-secrets` completed (AppRole auth enabled, KV v2 at `secret/`)
-- Vault initialized and unsealed
+## What gets created
 
-## Run — provision a new server
+| Resource | Path | Purpose |
+|----------|------|---------|
+| Policy | `nginx-<fqdn>` | Read-only on `secret/data/certs/<fqdn>/*` |
+| AppRole | `auth/approle/role/nginx-<fqdn>` | Identity for the NGINX server |
+| Credentials | `04-approle-nginx/credentials/<fqdn>/` | `role_id` + `secret_id` files |
+
+Run this once per NGINX server you want to configure.
+
+## Variables
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `VAULT_ADDR` | yes | Local connection address. Default: `http://127.0.0.1:8100` |
+| `VAULT_TOKEN` | yes | Root token. Auto-read from `server/init/vault-init.json` if present. |
+| Server FQDN | yes | Fully qualified hostname of the NGINX server. Pass as argument or enter when prompted. |
+
+## Run
 
 ```bash
-export VAULT_ADDR=http://127.0.0.1:8100
-export VAULT_TOKEN=$(jq -r '.root_token' ../server/init/vault-init.json)
-
+# Pass FQDN as argument
 bash 04-approle-nginx/setup.sh nginx01.example.com
-```
 
-Credentials are saved to `04-approle-nginx/credentials/nginx01.example.com/`.
-Copy them to the NGINX server (see `client/nginx/install.sh`).
+# Or run interactively (will prompt for FQDN)
+bash 04-approle-nginx/setup.sh
+```
 
 ## Verify
 
 ```bash
-HOSTNAME=nginx01.example.com
+# Policy exists and covers the right path
+vault policy read nginx-nginx01.example.com
 
-# Check role
-vault read auth/approle/role/nginx-${HOSTNAME}
-
-# Check policy
-vault policy read nginx-${HOSTNAME}
+# AppRole exists
+vault read auth/approle/role/nginx-nginx01.example.com
 ```
 
-## Test AppRole login
+## Deploy credentials to the NGINX server
 
 ```bash
-HOSTNAME=nginx01.example.com
-CREDS_DIR="04-approle-nginx/credentials/${HOSTNAME}"
-
-TOKEN=$(vault write -field=token auth/approle/login \
-  role_id="$(cat ${CREDS_DIR}/role_id)" \
-  secret_id="$(cat ${CREDS_DIR}/secret_id)")
-
-# Verify access — should be able to read own certs
-VAULT_TOKEN="$TOKEN" vault kv get secret/certs/${HOSTNAME}/ecdsa
-
-# Verify isolation — must NOT be able to read another server's certs
-VAULT_TOKEN="$TOKEN" vault kv get secret/certs/other.example.com/ecdsa
-# Expected: permission denied
+# Copy role_id and secret_id to the server
+scp 04-approle-nginx/credentials/nginx01.example.com/{role_id,secret_id} \
+  root@nginx01.example.com:/etc/vault-agent/
 ```
 
-## Push a sample certificate (for testing)
+These files are used by Vault Agent on the NGINX server to authenticate and retrieve
+certificates. See `client/nginx/` for the Vault Agent configuration.
+
+## Test authentication
+
+From the NGINX server (or locally to test):
 
 ```bash
-HOSTNAME=nginx01.example.com
+# Authenticate using the AppRole credentials
+VAULT_TOKEN=$(vault write -field=token auth/approle/login \
+  role_id=$(cat /etc/vault-agent/role_id) \
+  secret_id=$(cat /etc/vault-agent/secret_id))
 
-vault kv put secret/certs/${HOSTNAME}/ecdsa \
-  chain="$(openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 \
-    -days 30 -nodes -subj "/CN=${HOSTNAME}" 2>/dev/null | \
-    openssl x509 2>/dev/null)" \
-  encrypted_key="placeholder-key" \
-  key_password="placeholder-pass" \
-  cert_type="ecdsa" \
-  cn="${HOSTNAME}"
-```
-
-## Rotate credentials
-
-```bash
-HOSTNAME=nginx01.example.com
-
-# Generate a new secret_id (old one is not automatically revoked)
-NEW_SECRET=$(vault write -force -field=secret_id \
-  auth/approle/role/nginx-${HOSTNAME}/secret-id)
-
-printf '%s' "$NEW_SECRET" > "04-approle-nginx/credentials/${HOSTNAME}/secret_id"
-chmod 600 "04-approle-nginx/credentials/${HOSTNAME}/secret_id"
+# Read a certificate (must have been pushed by CertMgr first)
+VAULT_TOKEN=$VAULT_TOKEN vault kv get secret/certs/nginx01.example.com/current
 ```

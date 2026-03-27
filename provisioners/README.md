@@ -13,31 +13,37 @@ cd server && docker compose up -d
 bash init/setup.sh
 ```
 
-Two environment variables control the provisioners — they serve different purposes:
+## Environment variables
+
+Three variables control the provisioners — each serves a different purpose:
+
+| Variable | Purpose | When needed |
+|----------|---------|-------------|
+| `VAULT_ADDR` | **Connection address.** How your terminal connects to Vault. Always the local address — you configure Vault locally even if it is publicly reachable. | All provisioners |
+| `VAULT_TOKEN` | **Authentication.** Root token from `server/init/setup.sh`. Auto-read from `server/init/vault-init.json` if present. | All provisioners |
+| `VAULT_API_ADDR` | **Public URL written into Vault.** Gets stored inside Vault as the base URL for CRL/OCSP URLs (in certificates) and ACME endpoints. Must be the address external clients use to reach Vault — never localhost. | 02, 03 |
+| `VAULT_DOMAIN` | **Certificate domain.** The domain for which Vault will issue certificates. `allow_subdomains=true` covers all hostnames under it. | 02, 03 |
 
 ```bash
-# VAULT_ADDR — how you connect to Vault. Always the local address.
-# You configure Vault locally regardless of where it is publicly reachable.
+# Always needed
 export VAULT_ADDR=http://127.0.0.1:8100
 export VAULT_TOKEN=$(jq -r '.root_token' server/init/vault-init.json)
 
-# VAULT_API_ADDR — the public URL written *into* Vault's configuration.
-# Only needed for 02-pki-internal-ca and 03-pki-acme.
-# Not used to connect — it gets stored inside Vault as:
-#   - The CRL/OCSP/CA issuer URL embedded in every certificate PKI issues
-#   - The base URL for ACME endpoints that clients redirect to
-# Must be the address external clients can reach:
-export VAULT_API_ADDR=https://vault.example.com
+# Needed for PKI provisioners (02, 03)
+export VAULT_API_ADDR=https://vault.example.com   # public URL — goes into Vault config
+export VAULT_DOMAIN=example.com                   # domain — goes into PKI roles
 ```
+
+If any variable is not exported, the script will prompt for it.
 
 ## Provisioners
 
-| Directory | What it sets up | Needs `VAULT_API_ADDR` |
-|-----------|----------------|----------------------|
-| `01-kv-secrets/` | KV v2 secrets engine + CertMgr AppRole | no |
-| `02-pki-internal-ca/` | Internal root CA + PKI secrets engine | yes — embedded in certificates |
-| `03-pki-acme/` | ACME protocol on the PKI engine | yes — embedded in ACME config |
-| `04-approle-nginx/` | Per-server AppRoles for NGINX cert delivery | no |
+| Directory | What it sets up | Needs `VAULT_API_ADDR` | Needs `VAULT_DOMAIN` |
+|-----------|----------------|----------------------|---------------------|
+| `01-kv-secrets/` | KV v2 secrets engine + CertMgr AppRole | no | no |
+| `02-pki-internal-ca/` | Internal root CA + PKI secrets engine | yes — in certificate CRL/OCSP URLs | yes — PKI role allowed_domains |
+| `03-pki-acme/` | ACME protocol on the PKI engine | yes — in ACME cluster path | yes — ACME role allowed_domains |
+| `04-approle-nginx/` | Per-server AppRoles for NGINX cert delivery | no | no |
 
 ## Running order
 

@@ -2,40 +2,58 @@
 # 02-pki-internal-ca/setup.sh — PKI secrets engine + internal root CA
 #
 # Usage:
-#   export VAULT_ADDR=http://127.0.0.1:8100
+#   export VAULT_ADDR=http://127.0.0.1:8100      # local connection (always)
 #   export VAULT_TOKEN=<root-token>
-#   export VAULT_API_ADDR=https://vault.example.com
+#   export VAULT_API_ADDR=https://vault.example.com   # public URL — written into certs
+#   export VAULT_DOMAIN=example.com                   # domain for PKI role
 #   bash 02-pki-internal-ca/setup.sh
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 INIT_FILE="${INIT_FILE:-${SCRIPT_DIR}/../../server/init/vault-init.json}"
-VAULT_ADDR="${VAULT_ADDR:-http://127.0.0.1:8100}"
 
-# ── public URL written into PKI configuration ─────────────────────────────────
-# VAULT_ADDR (local) is used to connect and run commands.
-# VAULT_API_ADDR is different: it gets stored inside Vault as the CRL/OCSP/CA
-# issuer URLs that are embedded in every certificate Vault issues.
-# Clients validating those certificates will fetch from this URL — it must be
-# your public address, not localhost.
-if [ -z "${VAULT_API_ADDR:-}" ]; then
-  printf "ERROR: VAULT_API_ADDR is required — set it to the public URL of this Vault server.\n" >&2
-  printf "  This is not your connection address. It gets written into issued certificates.\n" >&2
-  printf "  Example: export VAULT_API_ADDR=https://vault.example.com\n" >&2
-  exit 1
-fi
+# ── interactive input helper ──────────────────────────────────────────────────
+# Usage: ask VAR "Description" ["default"]
+# If VAR is already set (env var), does nothing.
+# Otherwise prompts the user, applies the default if they press Enter, and errors if empty.
+ask() {
+  local _var="$1" _desc="$2" _default="${3:-}" _value
+  eval "_value=\${${_var}:-}"
+  [ -n "$_value" ] && return 0
+  [ -n "$_default" ] \
+    && printf "  %s [%s]: " "$_desc" "$_default" \
+    || printf "  %s: " "$_desc"
+  read -r _value </dev/tty
+  _value="${_value:-$_default}"
+  if [ -z "$_value" ]; then
+    printf "ERROR: %s is required.\n" "$_var" >&2; exit 1
+  fi
+  eval "${_var}=\${_value}"; export "${_var?}"
+}
 
-# ── token ─────────────────────────────────────────────────────────────────────
+# ── required variables ────────────────────────────────────────────────────────
+printf "\n=== Configuration ===\n"
+printf "  VAULT_ADDR     — how to connect to Vault (local, never the public URL)\n"
+ask VAULT_ADDR "Vault address" "http://127.0.0.1:8100"
+
+printf "  VAULT_TOKEN    — root token from server/init/setup.sh\n"
 if [ -z "${VAULT_TOKEN:-}" ]; then
   if [ -f "$INIT_FILE" ]; then
     VAULT_TOKEN=$(jq -r '.root_token' "$INIT_FILE")
+    printf "  (token read from %s)\n" "$INIT_FILE"
   else
-    printf "ERROR: VAULT_TOKEN not set and %s not found.\n" "$INIT_FILE" >&2
-    printf "  Run server/init/setup.sh first, or: export VAULT_TOKEN=<root-token>\n" >&2
-    exit 1
+    ask VAULT_TOKEN "Vault root token"
   fi
 fi
+
+printf "  VAULT_API_ADDR — public URL written INTO Vault config (CRL/OCSP/ACME URLs in certs)\n"
+printf "                   must be reachable by clients — not localhost\n"
+ask VAULT_API_ADDR "Public Vault URL (e.g. https://vault.example.com)"
+
+printf "  VAULT_DOMAIN   — domain for which this CA will issue certificates\n"
+printf "                   allow_subdomains=true covers host.example.com, app.example.com, etc.\n"
+ask VAULT_DOMAIN "Certificate domain (e.g. example.com)"
 
 export VAULT_ADDR VAULT_TOKEN
 
@@ -45,7 +63,8 @@ if ! command -v vault >/dev/null 2>&1; then
 fi
 
 printf "=== 02-pki-internal-ca ===\n"
-printf "  External URL: %s\n" "$VAULT_API_ADDR"
+printf "  External URL : %s\n" "$VAULT_API_ADDR"
+printf "  PKI domain   : %s\n" "$VAULT_DOMAIN"
 
 # ── enable PKI secrets engine ─────────────────────────────────────────────────
 printf -- "-- Enabling PKI secrets engine at pki/ --\n"
@@ -89,7 +108,7 @@ vault write pki/config/crl \
 # ── create server role ────────────────────────────────────────────────────────
 printf -- "-- Creating role: server --\n"
 vault write pki/roles/server \
-  allowed_domains="example.com" \
+  allowed_domains="${VAULT_DOMAIN}" \
   allow_subdomains=true \
   allow_bare_domains=false \
   allow_wildcard_certificates=false \
@@ -111,4 +130,4 @@ printf "    vault read pki/config/urls\n"
 printf "    vault list pki/roles\n"
 printf "\n"
 printf "  Issue a test cert:\n"
-printf "    vault write pki/issue/server common_name=test.example.com ttl=24h\n"
+printf "    vault write pki/issue/server common_name=test.%s ttl=24h\n" "$VAULT_DOMAIN"

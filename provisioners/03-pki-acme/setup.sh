@@ -5,39 +5,57 @@
 # Requires: Vault 1.14+
 #
 # Usage:
-#   export VAULT_ADDR=http://127.0.0.1:8100
+#   export VAULT_ADDR=http://127.0.0.1:8100           # local connection (always)
 #   export VAULT_TOKEN=<root-token>
-#   export VAULT_API_ADDR=https://vault.example.com
+#   export VAULT_API_ADDR=https://vault.example.com   # public URL — written into ACME config
+#   export VAULT_DOMAIN=example.com                   # domain for ACME role
 #   bash 03-pki-acme/setup.sh
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 INIT_FILE="${INIT_FILE:-${SCRIPT_DIR}/../../server/init/vault-init.json}"
-VAULT_ADDR="${VAULT_ADDR:-http://127.0.0.1:8100}"
 
-# ── public URL written into ACME cluster configuration ───────────────────────
-# VAULT_ADDR (local) is used to connect and run commands.
-# VAULT_API_ADDR is different: it gets stored inside Vault as the base URL for
-# all ACME endpoints (directory, new-nonce, new-order, etc.).
-# ACME clients fetch those URLs directly — it must be your public address.
-if [ -z "${VAULT_API_ADDR:-}" ]; then
-  printf "ERROR: VAULT_API_ADDR is required — set it to the public URL of this Vault server.\n" >&2
-  printf "  This is not your connection address. It gets written into Vault's ACME config.\n" >&2
-  printf "  Example: export VAULT_API_ADDR=https://vault.example.com\n" >&2
-  exit 1
-fi
+# ── interactive input helper ──────────────────────────────────────────────────
+# Usage: ask VAR "Description" ["default"]
+# If VAR is already set (env var), does nothing.
+# Otherwise prompts the user, applies the default if they press Enter, and errors if empty.
+ask() {
+  local _var="$1" _desc="$2" _default="${3:-}" _value
+  eval "_value=\${${_var}:-}"
+  [ -n "$_value" ] && return 0
+  [ -n "$_default" ] \
+    && printf "  %s [%s]: " "$_desc" "$_default" \
+    || printf "  %s: " "$_desc"
+  read -r _value </dev/tty
+  _value="${_value:-$_default}"
+  if [ -z "$_value" ]; then
+    printf "ERROR: %s is required.\n" "$_var" >&2; exit 1
+  fi
+  eval "${_var}=\${_value}"; export "${_var?}"
+}
 
-# ── token ─────────────────────────────────────────────────────────────────────
+# ── required variables ────────────────────────────────────────────────────────
+printf "\n=== Configuration ===\n"
+printf "  VAULT_ADDR     — how to connect to Vault (local, never the public URL)\n"
+ask VAULT_ADDR "Vault address" "http://127.0.0.1:8100"
+
+printf "  VAULT_TOKEN    — root token from server/init/setup.sh\n"
 if [ -z "${VAULT_TOKEN:-}" ]; then
   if [ -f "$INIT_FILE" ]; then
     VAULT_TOKEN=$(jq -r '.root_token' "$INIT_FILE")
+    printf "  (token read from %s)\n" "$INIT_FILE"
   else
-    printf "ERROR: VAULT_TOKEN not set and %s not found.\n" "$INIT_FILE" >&2
-    printf "  Run server/init/setup.sh first, or: export VAULT_TOKEN=<root-token>\n" >&2
-    exit 1
+    ask VAULT_TOKEN "Vault root token"
   fi
 fi
+
+printf "  VAULT_API_ADDR — public URL written INTO Vault config (base URL for all ACME endpoints)\n"
+printf "                   ACME clients redirect to this URL — must be externally reachable\n"
+ask VAULT_API_ADDR "Public Vault URL (e.g. https://vault.example.com)"
+
+printf "  VAULT_DOMAIN   — domain for which ACME clients may request certificates\n"
+ask VAULT_DOMAIN "Certificate domain (e.g. example.com)"
 
 export VAULT_ADDR VAULT_TOKEN
 
@@ -48,6 +66,7 @@ fi
 
 printf "=== 03-pki-acme ===\n"
 printf "  External URL : %s\n" "$VAULT_API_ADDR"
+printf "  PKI domain   : %s\n" "$VAULT_DOMAIN"
 printf "  ACME directory will be at:\n"
 printf "    %s/v1/pki/acme/directory\n" "$VAULT_API_ADDR"
 
@@ -78,7 +97,7 @@ vault write pki/config/acme \
 # ── create ACME role ──────────────────────────────────────────────────────────
 printf -- "-- Creating role: acme --\n"
 vault write pki/roles/acme \
-  allowed_domains="example.com" \
+  allowed_domains="${VAULT_DOMAIN}" \
   allow_subdomains=true \
   allow_bare_domains=false \
   allow_wildcard_certificates=false \
@@ -99,8 +118,8 @@ printf "    curl -s %s/v1/pki/acme/directory | jq .\n" "$VAULT_API_ADDR"
 printf "\n"
 printf "  Issue with acme.sh:\n"
 printf "    acme.sh --issue --server %s/v1/pki/acme/directory \\\\\n" "$VAULT_API_ADDR"
-printf "      -d test.example.com --standalone\n"
+printf "      -d test.%s --standalone\n" "$VAULT_DOMAIN"
 printf "\n"
 printf "  Issue with certbot:\n"
 printf "    certbot certonly --server %s/v1/pki/acme/directory \\\\\n" "$VAULT_API_ADDR"
-printf "      --standalone -d test.example.com\n"
+printf "      --standalone -d test.%s\n" "$VAULT_DOMAIN"

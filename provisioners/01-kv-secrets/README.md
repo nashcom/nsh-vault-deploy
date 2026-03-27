@@ -1,102 +1,92 @@
-# 01 — KV Secrets Engine
+# 01 — KV Secrets + CertMgr AppRole
 
-Enables the KV v2 secrets engine and creates the CertMgr AppRole used to
-push TLS certificates into Vault.
+## What this does
 
-## What this sets up
+Sets up the KV v2 secrets engine and an AppRole identity for Domino CertMgr to push
+certificates into Vault.
 
-- KV v2 secrets engine at `secret/`
-- Policy `certmgr-push` — allows writing to `secret/certs/*`
-- AppRole auth method
-- AppRole `certmgr` — used by CertMgr to push certificates
+**KV v2** (key/value version 2) is Vault's general-purpose secret store. This provisioner
+mounts it at `secret/` and reserves the path `secret/certs/<hostname>/` for certificate
+storage. Each Domino server stores its certificate and key there; NGINX servers read from
+the same path.
+
+**AppRole** is a Vault authentication method designed for machines and services (not humans).
+A service authenticates with a Role ID (like a username) and a Secret ID (like a password)
+to receive a short-lived Vault token. This provisioner creates the `certmgr` AppRole so
+Domino CertMgr can authenticate to push certificates.
+
+## What gets created
+
+| Resource | Path | Purpose |
+|----------|------|---------|
+| KV v2 engine | `secret/` | Certificate and secret storage |
+| Policy | `certmgr-push` | Allows write to `secret/data/certs/*` |
+| AppRole | `auth/approle/role/certmgr` | Identity for Domino CertMgr |
+| Credentials file | `01-kv-secrets/certmgr-approle.env` | Role ID + Secret ID for CertMgr |
 
 ## Prerequisites
 
-Vault initialized and unsealed (`server/init/setup.sh` completed).
+- Vault running and unsealed
+- `server/init/setup.sh` completed (provides `vault-init.json`)
+
+## Variables
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `VAULT_ADDR` | yes | Local connection address. Default: `http://127.0.0.1:8100` |
+| `VAULT_TOKEN` | yes | Root token. Auto-read from `server/init/vault-init.json` if present. |
+
+These control **how you connect** to Vault. They never need to be the public address.
 
 ## Run
 
 ```bash
-export VAULT_ADDR=http://127.0.0.1:8100
-export VAULT_TOKEN=$(jq -r '.root_token' ../server/init/vault-init.json)
-
 bash 01-kv-secrets/setup.sh
 ```
 
-Credentials are saved to `01-kv-secrets/certmgr-approle.env` (mode 600).
+If variables are not set the script will prompt for them.
+To skip prompts, export them first:
+
+```bash
+export VAULT_ADDR=http://127.0.0.1:8100
+export VAULT_TOKEN=$(jq -r '.root_token' server/init/vault-init.json)
+bash 01-kv-secrets/setup.sh
+```
 
 ## Verify
 
 ```bash
-# Check secrets engine is enabled
+# KV engine is listed
 vault secrets list
 
-# Check AppRole auth is enabled
-vault auth list
-
-# Check the certmgr role exists
-vault read auth/approle/role/certmgr
-
-# Check the policy
+# Policy exists and has correct paths
 vault policy read certmgr-push
+
+# AppRole exists with correct settings
+vault read auth/approle/role/certmgr
 ```
 
 ## Test
 
 ```bash
 # Write a test secret
-vault kv put secret/certs/test.example.com/ecdsa \
-  chain="test-chain" \
-  encrypted_key="test-key" \
-  key_password="test-pass"
+vault kv put secret/certs/test.example.com cert="FAKECERT" key="FAKEKEY"
 
 # Read it back
-vault kv get secret/certs/test.example.com/ecdsa
-
-# List
-vault kv list secret/certs/
+vault kv get secret/certs/test.example.com
 
 # Clean up
-vault kv delete secret/certs/test.example.com/ecdsa
-vault kv metadata delete secret/certs/test.example.com/ecdsa
+vault kv delete secret/certs/test.example.com
 ```
 
-## Test AppRole login
+## Output
 
-```bash
-source 01-kv-secrets/certmgr-approle.env
-
-TOKEN=$(vault write -field=token auth/approle/login \
-  role_id="$VAULT_ROLE_ID" \
-  secret_id="$VAULT_SECRET_ID")
-
-# Verify the token has the right policy
-VAULT_TOKEN="$TOKEN" vault token lookup
-
-# Verify it can write a cert
-VAULT_TOKEN="$TOKEN" vault kv put secret/certs/test.example.com/ecdsa \
-  chain="test" encrypted_key="test" key_password="test"
-
-# Clean up
-vault kv metadata delete secret/certs/test.example.com/ecdsa
-```
-
-## Secret path structure
+`certmgr-approle.env` contains the credentials CertMgr needs:
 
 ```
-secret/certs/<server-fqdn>/ecdsa
-secret/certs/<server-fqdn>/rsa
+VAULT_ADDR=http://127.0.0.1:8100
+VAULT_ROLE_ID=<role-id>
+VAULT_SECRET_ID=<secret-id>
 ```
 
-Fields per secret:
-
-| Field | Description |
-|-------|-------------|
-| `chain` | Full PEM certificate chain (leaf + intermediates) |
-| `encrypted_key` | AES-256 encrypted PEM private key |
-| `key_password` | Decryption password for the key |
-| `cn` | Certificate common name |
-| `cert_type` | `rsa`, `ecdsa`, or `tls` |
-| `serial` | Certificate serial number |
-| `not_after` | Expiry timestamp |
-| `pushed_at` | ISO-8601 push timestamp |
+Copy these values into your Domino CertMgr configuration.

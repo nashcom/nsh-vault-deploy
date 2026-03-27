@@ -13,26 +13,48 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 INIT_FILE="${INIT_FILE:-${SCRIPT_DIR}/../../server/init/vault-init.json}"
-VAULT_ADDR="${VAULT_ADDR:-http://127.0.0.1:8100}"
 
-# ── hostname argument ─────────────────────────────────────────────────────────
-if [ $# -lt 1 ]; then
-  printf "Usage: %s <server-fqdn>\n" "$0" >&2
-  printf "  Example: %s nginx01.example.com\n" "$0" >&2
-  exit 1
-fi
-HOSTNAME="$1"
+# ── interactive input helper ──────────────────────────────────────────────────
+# Usage: ask VAR "Description" ["default"]
+# If VAR is already set (env var), does nothing.
+# Otherwise prompts the user, applies the default if they press Enter, and errors if empty.
+ask() {
+  local _var="$1" _desc="$2" _default="${3:-}" _value
+  eval "_value=\${${_var}:-}"
+  [ -n "$_value" ] && return 0
+  [ -n "$_default" ] \
+    && printf "  %s [%s]: " "$_desc" "$_default" \
+    || printf "  %s: " "$_desc"
+  read -r _value </dev/tty
+  _value="${_value:-$_default}"
+  if [ -z "$_value" ]; then
+    printf "ERROR: %s is required.\n" "$_var" >&2; exit 1
+  fi
+  eval "${_var}=\${_value}"; export "${_var?}"
+}
 
-# ── token ─────────────────────────────────────────────────────────────────────
+# ── required variables ────────────────────────────────────────────────────────
+printf "\n=== Configuration ===\n"
+printf "  VAULT_ADDR  — how to connect to Vault (local address, always)\n"
+ask VAULT_ADDR "Vault address" "http://127.0.0.1:8100"
+
+printf "  VAULT_TOKEN — root token from server/init/setup.sh\n"
 if [ -z "${VAULT_TOKEN:-}" ]; then
   if [ -f "$INIT_FILE" ]; then
     VAULT_TOKEN=$(jq -r '.root_token' "$INIT_FILE")
+    printf "  (token read from %s)\n" "$INIT_FILE"
   else
-    printf "ERROR: VAULT_TOKEN not set and %s not found.\n" "$INIT_FILE" >&2
-    printf "  Run server/init/setup.sh first, or: export VAULT_TOKEN=<root-token>\n" >&2
-    exit 1
+    ask VAULT_TOKEN "Vault root token"
   fi
 fi
+
+# Hostname can be passed as $1 or entered interactively
+HOSTNAME="${1:-}"
+if [ -z "$HOSTNAME" ]; then
+  printf "  SERVER_FQDN — fully qualified hostname of the NGINX server to configure\n"
+  ask HOSTNAME "Server FQDN (e.g. nginx01.example.com)"
+fi
+printf "  Server FQDN  : %s\n" "$HOSTNAME"
 
 export VAULT_ADDR VAULT_TOKEN
 
