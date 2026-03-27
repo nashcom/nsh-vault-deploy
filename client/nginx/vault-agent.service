@@ -1,0 +1,34 @@
+[Unit]
+Description=Vault Agent — NGINX TLS certificate delivery
+Documentation=https://developer.hashicorp.com/vault/docs/agent-and-proxy/agent
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+
+# Mount tmpfs for SSL material — RAM only, gone on reboot
+ExecStartPre=/bin/mkdir -p /run/vault-agent
+ExecStartPre=/bin/mkdir -p /run/vault/ssl/ecdsa
+ExecStartPre=/bin/mkdir -p /run/vault/ssl/rsa
+ExecStartPre=/bin/mount -t tmpfs \
+    -o nodev,nosuid,noexec,size=4m,mode=0750,uid=root,gid=nginx \
+    tmpfs /run/vault/ssl
+
+ExecStart=/usr/bin/vault agent -config=/etc/vault-agent/config.hcl
+
+# Unmount on stop — SSL files disappear
+ExecStopPost=/bin/umount -l /run/vault/ssl
+
+Restart=always
+RestartSec=5
+LimitMEMLOCK=infinity
+
+NoNewPrivileges=yes
+ProtectSystem=strict
+ReadWritePaths=/run/vault-agent /run/vault /var/log
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target

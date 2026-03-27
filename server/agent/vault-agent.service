@@ -1,0 +1,26 @@
+[Unit]
+Description=Vault Agent — Vault host TLS cert renewal
+Documentation=https://developer.hashicorp.com/vault/docs/agent-and-proxy/agent
+After=docker.service network-online.target
+Wants=network-online.target
+# Must start after the Vault container is up
+Requires=docker.service
+
+[Service]
+Type=simple
+User=root
+
+ExecStartPre=/bin/mkdir -p /run/vault-agent-host
+
+ExecStart=/usr/bin/vault agent -config=/etc/vault-agent-host/config.hcl
+
+Restart=always
+RestartSec=10
+LimitMEMLOCK=infinity
+
+NoNewPrivileges=yes
+# Needs access to docker socket for SIGHUP reload
+SupplementaryGroups=docker
+
+[Install]
+WantedBy=multi-user.target

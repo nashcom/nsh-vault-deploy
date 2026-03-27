@@ -1,0 +1,46 @@
+# NGINX SSL server block — Vault Agent delivered certificates
+#
+# Single cert type (ECDSA or RSA):
+#   ssl_certificate     /run/vault/ssl/ecdsa/server.crt;
+#   ssl_certificate_key /run/vault/ssl/ecdsa/server.key;
+#   ssl_password_file   /run/vault/ssl/ecdsa/ssl_password;
+#
+# Dual-stack (ECDSA preferred, RSA fallback for old clients):
+#   ssl_certificate     /run/vault/ssl/ecdsa/server.crt;
+#   ssl_certificate_key /run/vault/ssl/ecdsa/server.key;
+#   ssl_certificate     /run/vault/ssl/rsa/server.crt;
+#   ssl_certificate_key /run/vault/ssl/rsa/server.key;
+#   ssl_password_file   /run/vault/ssl/ecdsa/ssl_password;
+#   ssl_password_file   /run/vault/ssl/rsa/ssl_password;
+#   (NGINX tries each password file for each encrypted key)
+
+server {
+    listen      443 ssl;
+    http2       on;
+    server_name SERVER_HOSTNAME;
+
+    ssl_certificate     /run/vault/ssl/ecdsa/server.crt;
+    ssl_certificate_key /run/vault/ssl/ecdsa/server.key;
+    ssl_password_file   /run/vault/ssl/ecdsa/ssl_password;
+
+    ssl_protocols             TLSv1.2 TLSv1.3;
+    ssl_ciphers               ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305;
+    ssl_prefer_server_ciphers off;
+
+    ssl_session_cache   shared:SSL:10m;
+    ssl_session_timeout 1d;
+    ssl_session_tickets off;
+
+    ssl_stapling        on;
+    ssl_stapling_verify on;
+
+    location / {
+        # your backend here
+    }
+}
+
+server {
+    listen      80;
+    server_name SERVER_HOSTNAME;
+    return 301  https://$host$request_uri;
+}

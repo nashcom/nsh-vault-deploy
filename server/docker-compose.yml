@@ -1,0 +1,27 @@
+services:
+  vault:
+    build: .
+    container_name: vault
+    restart: on-failure
+    ports:
+      - "127.0.0.1:8100:8100"   # internal HTTP — localhost admin access only
+      - "0.0.0.0:8200:8200"     # standard Vault port — TLS, external clients
+    cap_add:
+      - IPC_LOCK
+    environment:
+      VAULT_ADDR: "http://127.0.0.1:8100"
+    volumes:
+      - ./config:/vault/config
+      - ./tls:/vault/tls:ro
+      - vault-data:/vault/data
+      - vault-logs:/vault/logs
+    healthcheck:
+      test: ["CMD", "vault", "status", "-address=http://127.0.0.1:8100"]
+      interval: 60s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+volumes:
+  vault-data:
+  vault-logs:
