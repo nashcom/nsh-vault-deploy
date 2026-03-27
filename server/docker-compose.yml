@@ -4,14 +4,16 @@ services:
     container_name: vault
     restart: on-failure
     ports:
-      - "127.0.0.1:8100:8100"   # internal HTTP — localhost admin access only
-      - "0.0.0.0:8200:8200"     # standard Vault port — TLS, external clients
+      - "127.0.0.1:8100:8100"                          # internal HTTP — localhost admin only
+      - "0.0.0.0:${VAULT_HTTPS_PORT:-8200}:8200"       # external TLS (set to 443 in .env)
     cap_add:
       - IPC_LOCK
     environment:
-      VAULT_ADDR: "http://127.0.0.1:8100"
+      VAULT_ADDR: "http://127.0.0.1:8100"              # internal — used by vault CLI inside container
+      VAULT_API_ADDR: "${VAULT_API_ADDR:-https://localhost:8200}"   # public URL for clients + ACME
+      VAULT_CLUSTER_ADDR: "https://vault:8201"
     volumes:
-      - ./config:/vault/config
+      - ./config:/vault/config:ro
       - ./tls:/vault/tls:ro
       - vault-data:/vault/data
       - vault-logs:/vault/logs

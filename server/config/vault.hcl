@@ -1,4 +1,8 @@
 # Vault server configuration
+#
+# External address is set via environment variables in docker-compose / .env:
+#   VAULT_API_ADDR     — public HTTPS URL, e.g. https://vault.example.com
+#   VAULT_CLUSTER_ADDR — internal cluster URL (set automatically by docker-compose)
 
 ui            = true
 disable_mlock = true   # required inside containers
@@ -9,19 +13,17 @@ storage "raft" {
 }
 
 # ── Internal listener — HTTP, Docker network only ─────────────────────────────
-# Port 8201 is NOT published in docker-compose.
-# Only reachable from containers in the same Docker network
-# (vault-agent sidecar, healthcheck, docker exec).
+# Port 8100 is published to localhost only.
+# Used by setup scripts, health checks, and admin operations.
 listener "tcp" {
   address     = "0.0.0.0:8100"
   tls_disable = "true"
 }
 
-# ── External listener — TLS, standard Vault port ──────────────────────────────
-# Port 8200 is published in docker-compose.
-# Certificate managed by vault-agent sidecar:
-#   first boot : bootstrap self-signed cert (tls/bootstrap.sh)
-#   after init : CertMgr pushes real cert → agent writes → vault operator reload
+# ── External listener — TLS ───────────────────────────────────────────────────
+# Port 8200 inside the container. Map to 443 in docker-compose for standard HTTPS.
+# Certificate: server/tls/vault.crt + vault.key
+# Bootstrap: run tls/bootstrap.sh <fqdn> before first start.
 listener "tcp" {
   address         = "0.0.0.0:8200"
   tls_cert_file   = "/vault/tls/vault.crt"
@@ -29,8 +31,8 @@ listener "tcp" {
   tls_min_version = "tls12"
 }
 
-api_addr     = "https://127.0.0.1:8200"   # override with real FQDN in production
-cluster_addr = "https://127.0.0.1:8202"
+# api_addr and cluster_addr are provided via VAULT_API_ADDR / VAULT_CLUSTER_ADDR
+# environment variables — see server/.env.example.
 
 default_lease_ttl = "168h"
-max_lease_ttl     = "720h"
+max_lease_ttl     = "8760h"   # 1 year — needed for PKI root CA

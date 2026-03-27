@@ -39,7 +39,7 @@ openssl req -x509 -newkey ec \
   -addext "subjectAltName=DNS:${FQDN},DNS:localhost,IP:127.0.0.1" \
   2>/dev/null
 
-chmod 600 "${SCRIPT_DIR}/vault.key"
+chmod 644 "${SCRIPT_DIR}/vault.key"   # world-readable so Docker uid 1000 can read it
 echo "  ${SCRIPT_DIR}/vault.crt"
 echo "  ${SCRIPT_DIR}/vault.key"
 
@@ -56,7 +56,7 @@ if [ "$LOOPBACK" = "true" ]; then
     -out    "${SCRIPT_DIR}/loopback-ca.crt" \
     -subj   "/CN=vault-loopback-ca/O=vault-internal" \
     2>/dev/null
-  chmod 600 "${SCRIPT_DIR}/loopback-ca.key"
+  chmod 644 "${SCRIPT_DIR}/loopback-ca.key"
 
   # Server cert signed by loopback CA
   openssl req -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes \
@@ -72,7 +72,7 @@ if [ "$LOOPBACK" = "true" ]; then
     -out   "${SCRIPT_DIR}/loopback.crt" \
     -extfile <(echo "subjectAltName=IP:127.0.0.1,DNS:localhost") \
     2>/dev/null
-  chmod 600 "${SCRIPT_DIR}/loopback.key"
+  chmod 644 "${SCRIPT_DIR}/loopback.key"
   rm -f "${SCRIPT_DIR}/loopback.csr"
 
   # Client cert for Vault Agent (mTLS)
@@ -88,7 +88,7 @@ if [ "$LOOPBACK" = "true" ]; then
     -CAcreateserial \
     -out   "${SCRIPT_DIR}/agent-client.crt" \
     2>/dev/null
-  chmod 600 "${SCRIPT_DIR}/agent-client.key"
+  chmod 644 "${SCRIPT_DIR}/agent-client.key"
   rm -f "${SCRIPT_DIR}/agent-client.csr"
 
   echo "  ${SCRIPT_DIR}/loopback.crt / loopback.key  (server)"

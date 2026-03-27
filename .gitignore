@@ -13,10 +13,13 @@ client/nginx/credentials/
 **/*.csr
 **/*.srl
 
-# ── C++ build output ───────────────────────────────────────────────────────
-client/cpp_client/*.o
+# ── Build artifacts ────────────────────────────────────────────────────────
+*.o
+*.a
 client/cpp_client/vault_example
 client/cpp_client/example
+client/domino/curltest/curltest
+client/vault-fetcher/vault-fetcher
 
 # ── Runtime / local data ──────────────────────────────────────────────────
 server/vault-data/
