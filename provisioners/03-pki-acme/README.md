@@ -27,6 +27,8 @@ but against your private CA.
 > - `Location` is missing → ACME clients cannot find the account URL after registration
 > - `Link` is missing → ToS and chain links are broken
 
+> See [ACME configuration](../../docs/acme-configuration.md) for a detailed explanation of why this is needed and how to diagnose issues.
+
 ## ACME directory URL
 
 Once configured, ACME clients point to:

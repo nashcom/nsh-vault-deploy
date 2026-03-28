@@ -87,6 +87,11 @@ correct `VAULT_API_ADDR`.
 If `Replay-Nonce` is missing from a `200` response, a reverse proxy is stripping
 non-standard headers. Configure the proxy to pass `Replay-Nonce` through.
 
+## Further reading
+
+- [Custom Docker image](../docs/docker-image.md) — why we build a minimal image, how the three-stage build works, and what "no shell" means in practice
+- [ACME configuration](../docs/acme-configuration.md) — required header tuning, DNS for challenge validation, troubleshooting guide
+
 ## Directory layout
 
 ```

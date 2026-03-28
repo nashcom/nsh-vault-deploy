@@ -23,6 +23,13 @@ HashiCorp Vault  (KV v2)
         Password never written to disk
 ```
 
+## Documentation
+
+| Document | Contents |
+|----------|----------|
+| [Custom Docker image](docs/docker-image.md) | How the Vault container is built, why no shell, permission handling |
+| [ACME configuration](docs/acme-configuration.md) | Required Vault tuning for ACME, DNS setup, troubleshooting |
+
 ## Secret Path Structure
 
 ```
