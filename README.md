@@ -1,7 +1,36 @@
 # vault — Private Key Distribution via HashiCorp Vault
 
-Distributes TLS private keys and sensitive credentials to servers without
-storing secrets in plaintext on disk. Part of the CertMgr ecosystem.
+## Why this exists
+
+**HCL Domino CertMgr** provides end-to-end certificate lifecycle management for
+Domino servers — requesting, renewing, and deploying certificates automatically
+without manual intervention. For Domino itself, the story is complete.
+
+The gap is **other servers**. A typical environment includes NGINX reverse
+proxies, load balancers, and other infrastructure that also needs TLS certificates.
+CertMgr can manage those certificates too, but those servers have no native way
+to securely receive the private key.
+
+Traditional approaches store private keys as files on disk — copied during
+deployments, sitting in backups, occasionally emailed between administrators.
+Every server that needs a certificate gets a copy of the key. Every copy is a
+liability.
+
+This project bridges that gap using **HashiCorp Vault** as the secure
+distribution layer:
+
+- CertMgr pushes the certificate and encrypted key to Vault after each renewal
+- Each server authenticates to Vault with its own identity and retrieves only its own secret
+- Private keys are decrypted in memory by the application — never written to disk in plaintext
+- Every read is logged in Vault's audit trail
+
+This repository contains everything needed to deploy and configure that Vault
+infrastructure — the server setup, the provisioning scripts, and the client
+configuration for NGINX and Domino servers.
+
+Vault can also act as a **private ACME Certificate Authority** — so CertMgr can
+request certificates directly from Vault for internal servers that cannot use
+public CAs like Let's Encrypt.
 
 ## Architecture
 
