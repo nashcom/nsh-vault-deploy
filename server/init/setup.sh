@@ -50,14 +50,32 @@ header "Initializing Vault"
 
 INITIALIZED=$(printf '%s' "$VAULT_STATUS" | jq -r '.initialized // "false"')
 
-if [ "$INITIALIZED" = "true" ]; then
-  echo "  already initialized -- skipping"
-  if [ ! -f "$INIT_FILE" ]; then
-    echo "ERROR: Vault is initialized but $INIT_FILE is missing." >&2
-    echo "  Restore from backup, or wipe and start fresh:" >&2
-    echo "    docker compose down -v && docker compose up -d" >&2
+# If vault-init.json is missing, force initialization (fresh start)
+if [ ! -f "$INIT_FILE" ]; then
+  echo "  vault-init.json missing -- attempting initialization"
+
+  # Try to initialize
+  if docker exec -e VAULT_ADDR="$VAULT_ADDR" "$VAULT_CONTAINER" vault operator init \
+    -key-shares=1 \
+    -key-threshold=1 \
+    -format=json > "$INIT_FILE" 2>/dev/null; then
+    chmod 600 "$INIT_FILE"
+    echo "  saved to $INIT_FILE"
+    VAULT_STATUS=$(docker exec -e VAULT_ADDR="$VAULT_ADDR" "$VAULT_CONTAINER" vault status -format=json 2>/dev/null || true)
+  else
+    # Vault is already initialized but we don't have the unseal key
+    echo "  ERROR: Vault is already initialized but vault-init.json is missing"
+    echo
+    echo "  This usually means Docker volumes weren't fully cleaned up."
+    echo "  Run this complete reset:"
+    echo
+    echo "    docker system prune -a --volumes --force"
+    echo "    ./start-vault.sh --fresh"
+    echo
     exit 1
   fi
+elif [ "$INITIALIZED" = "true" ]; then
+  echo "  already initialized -- skipping"
 else
   echo "  initializing (1 share, threshold 1)"
   docker exec -e VAULT_ADDR="$VAULT_ADDR" "$VAULT_CONTAINER" vault operator init \

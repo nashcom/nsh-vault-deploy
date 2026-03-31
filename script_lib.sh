@@ -27,6 +27,11 @@ header()
 }
 
 
+# GetInput -- prompt user for input, respecting INTERACTIVE mode
+# Modes:
+#   INTERACTIVE=true  (1) - always prompt, even if variable is set
+#   INTERACTIVE=false (0) - only prompt if variable is empty
+# Usage: GetInput VAR_NAME "Prompt text"
 GetInput()
 {
   local VAR_NAME="$1"
@@ -38,6 +43,12 @@ GetInput()
     PROMPT="$VAR_NAME"
   fi
 
+  # If INTERACTIVE=false (non-interactive mode) and variable is set, skip prompt
+  if [ "${INTERACTIVE:-true}" = "false" ] && [ -n "$DEFAULT" ]; then
+    return 0
+  fi
+
+  # Interactive prompt
   if [ -n "$DEFAULT" ]; then
     read -r -p "$PROMPT [$DEFAULT]: " VALUE
 
@@ -133,4 +144,67 @@ SaveEnvFile()
 
   chmod 600 "$ENV_FILE"
   echo "Saved configuration to: $ENV_FILE"
+}
+
+
+# pause_for_continue -- pause and wait for user to press any key (for guided tours)
+# Usage: pause_for_continue "Press any key to continue..."
+pause_for_continue()
+{
+  local PROMPT="${1:-Press any key to continue...}"
+  echo
+  read -r -s -n 1 -p "$PROMPT"
+  echo
+  echo
+}
+
+
+# explain -- display explanation text for guided tour
+# Usage: explain "Here's what just happened..."
+explain()
+{
+  echo "$@"
+  echo
+}
+
+
+# show_verify -- display verification commands for a step
+# Usage: show_verify "vault read pki/config/urls" "vault list pki/roles"
+show_verify()
+{
+  echo
+  echo "Verify this step with:"
+  for cmd in "$@"; do
+    echo "  $cmd"
+  done
+  echo
+}
+
+
+# display_root_token -- display root token for UI login
+# Usage: display_root_token
+display_root_token()
+{
+  local INIT_FILE="${1:-.}"
+  if [ -f "$INIT_FILE" ]; then
+    local ROOT_TOKEN=$(jq -r '.root_token' "$INIT_FILE")
+    echo
+    header "ROOT TOKEN FOR UI LOGIN"
+    if [ -n "${VAULT_API_ADDR:-}" ]; then
+      echo "Vault UI: $VAULT_API_ADDR"
+    fi
+    echo "Token: $ROOT_TOKEN"
+    echo
+  fi
+}
+
+
+# clear_screen -- clear terminal screen (respects ENABLE_CLEAR setting)
+# Set ENABLE_CLEAR=false to disable clearing
+# Usage: clear_screen
+clear_screen()
+{
+  if [ "${ENABLE_CLEAR:-true}" != "false" ]; then
+    clear
+  fi
 }
