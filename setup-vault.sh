@@ -95,8 +95,65 @@ chmod 600 "$ENV_FILE"
 
 log "Configuration saved to: $ENV_FILE"
 
-echo
+# TLS Bootstrap Certificates
+header "TLS Bootstrap Certificates"
+
+TLS_DIR="${SCRIPT_DIR}/server/tls"
+TLS_CERT="${TLS_DIR}/vault.crt"
+TLS_KEY="${TLS_DIR}/vault.key"
+
+if [ -f "$TLS_CERT" ] && [ -f "$TLS_KEY" ]; then
+  echo "TLS certificates already exist:"
+  echo "  $TLS_CERT"
+  echo "  $TLS_KEY"
+  echo
+  read -r -p "Regenerate TLS certificates? (y/n) " -n 1
+  echo
+  GENERATE_TLS=$REPLY
+else
+  echo "No TLS certificates found."
+  echo
+  read -r -p "Generate bootstrap TLS certificates? (y/n) " -n 1
+  echo
+  GENERATE_TLS=$REPLY
+fi
+
+if [[ $GENERATE_TLS =~ ^[Yy]$ ]]; then
+  echo "Generating bootstrap TLS certificates for: $VAULT_FQDN"
+
+  bash "$TLS_DIR/bootstrap.sh" "$VAULT_FQDN"
+
+  echo
+  echo "TLS certificates generated:"
+  echo "  $TLS_CERT"
+  echo "  $TLS_KEY"
+  echo
+  echo "⚠️  These are TEMPORARY bootstrap certificates (self-signed, 365 days)"
+  echo
+  echo "If you have your own TLS certificates, replace these files:"
+  echo "  - Vault server cert: $TLS_CERT"
+  echo "  - Vault server key:  $TLS_KEY"
+  echo
+  echo "Then restart Vault:"
+  echo "  ./start-vault.sh"
+  echo
+else
+  if ! [ -f "$TLS_CERT" ] || ! [ -f "$TLS_KEY" ]; then
+    header "ERROR: Missing TLS Certificates"
+    echo "TLS certificates are required to start Vault."
+    echo
+    echo "Provide your own certificates:"
+    echo "  cp your-cert.crt $TLS_CERT"
+    echo "  cp your-key.key  $TLS_KEY"
+    echo
+    echo "Or run this script again and choose to generate bootstrap certificates."
+    echo
+    exit 1
+  fi
+fi
+
 echo "Next steps:"
+echo "  ./start-vault.sh             (start Vault container)"
 echo "  ./setup-provisioners.sh      (automated deployment)"
 echo "  ./guided-tour.sh             (educational walkthrough)"
 echo
