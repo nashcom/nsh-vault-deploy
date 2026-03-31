@@ -29,6 +29,19 @@ listener "tcp" {
   tls_cert_file   = "/vault/tls/vault.crt"
   tls_key_file    = "/vault/tls/vault.key"
   tls_min_version = "tls12"
+
+  # ── mTLS client authentication ───────────────────────────────────────────────
+  # Required for srvguard and other services to authenticate via client certificate.
+  # Without tls_client_ca_file, Vault does not request a client cert during the
+  # TLS handshake and cert auth cannot work regardless of how it is configured.
+  #
+  # Steps to enable:
+  #   1. Run provisioner 02-pki-internal-ca to create the internal CA
+  #   2. Run provisioner 06-mtls-bootstrap/setup.sh — it writes client-ca.crt here
+  #   3. Uncomment below and run: vault operator reload
+  #
+  # tls_client_ca_file                 = "/vault/tls/client-ca.crt"
+  # tls_require_and_verify_client_cert = false   # false = optional, UI and CLI still work
 }
 
 # api_addr and cluster_addr are provided via VAULT_API_ADDR / VAULT_CLUSTER_ADDR

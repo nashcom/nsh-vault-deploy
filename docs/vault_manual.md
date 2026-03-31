@@ -3,6 +3,12 @@
 Hands-on walkthrough of every operation we need, using the Vault CLI and raw
 `curl` side by side.  Work through the sections in order the first time.
 
+> **TL;DR —** Covers init, unseal, KV v2 secrets, policies, and AppRole
+> authentication — each with both the Vault CLI command and the equivalent
+> `curl` call. Work through sections 0–4 once to get a running Vault instance;
+> return to individual sections as a reference. The Quick Reference table at
+> the end summarises every command on one page.
+
 ---
 
 ## 0. Prerequisites
@@ -32,7 +38,6 @@ curl -s $VAULT_ADDR/v1/sys/health | jq
 Fresh container output shows `initialized: false, sealed: true`.
 After init it shows `initialized: true, sealed: false`.
 
----
 
 ## 1. Initialize Vault
 
@@ -61,7 +66,6 @@ Store them somewhere safe (for dev, a local file is fine):
 # for manual work, just keep the terminal open or paste them into a file
 ```
 
----
 
 ## 2. Unseal Vault
 
@@ -80,7 +84,6 @@ curl -s --request POST \
 
 `sealed: false` in the response means you are good to go.
 
----
 
 ## 3. Authenticate (Root Token)
 
@@ -110,7 +113,6 @@ vault token lookup
 curl -s -H "X-Vault-Token: $VAULT_TOKEN" $VAULT_ADDR/v1/auth/token/lookup-self | jq
 ```
 
----
 
 ## 4. Enable the KV v2 Secrets Engine
 
@@ -134,7 +136,6 @@ vault secrets list
 curl -s -H "X-Vault-Token: $VAULT_TOKEN" $VAULT_ADDR/v1/sys/mounts | jq 'keys'
 ```
 
----
 
 ## 5. Write a Secret
 
@@ -181,7 +182,6 @@ A successful write returns:
 }
 ```
 
----
 
 ## 6. Read a Secret
 
@@ -220,7 +220,6 @@ vault kv get -version=1 secret/certs/myserver.example.com/tls
 curl -s -H "X-Vault-Token: $VAULT_TOKEN" "$VAULT_ADDR/v1/secret/data/certs/myserver.example.com/tls?version=1" | jq
 ```
 
----
 
 ## 7. List Secrets
 
@@ -236,7 +235,6 @@ vault kv list secret/certs/myserver.example.com/
 curl -s --request LIST -H "X-Vault-Token: $VAULT_TOKEN" $VAULT_ADDR/v1/secret/metadata/certs/ | jq '.data.keys'
 ```
 
----
 
 ## 8. Delete a Secret
 
@@ -258,7 +256,6 @@ Delete all versions and metadata entirely:
 vault kv metadata delete secret/certs/myserver.example.com/tls
 ```
 
----
 
 ## 9. Policies
 
@@ -296,7 +293,6 @@ Read a policy:
 vault policy read nginx-read
 ```
 
----
 
 ## 10. AppRole Authentication
 
@@ -350,7 +346,6 @@ curl -s --request POST \
 The response contains `auth.client_token` — use that as `X-Vault-Token`
 for subsequent requests.  It expires after `token_ttl`.
 
----
 
 ## Quick Reference
 
@@ -367,7 +362,6 @@ for subsequent requests.  It expires after `token_ttl`.
 All curl requests require `-H "X-Vault-Token: $VAULT_TOKEN"` except the
 unseal and login endpoints.
 
----
 
 ## What the C++ Program Does (preview)
 
